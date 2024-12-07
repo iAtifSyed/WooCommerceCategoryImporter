@@ -1,0 +1,134 @@
+<?php
+/*
+Plugin Name: CSV Category Importer
+Description: A plugin to import WooCommerce categories from a CSV file.
+Version: 1.0
+Author: Atif Syed
+Author URI: https://iatifsyed.github.io/
+License: GPL2
+*/
+
+// Exit if accessed directly
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+/**
+ * Register admin menu for CSV import.
+ */
+function register_csv_import_menu() {
+    add_menu_page(
+        'CSV Category Import',          // Page title
+        'CSV Category Import',          // Menu title
+        'manage_options',               // Capability
+        'csv-category-import',          // Menu slug
+        'csv_import_page_html',         // Callback function
+        'dashicons-upload',             // Icon
+        30                              // Position
+    );
+}
+add_action('admin_menu', 'register_csv_import_menu');
+
+/**
+ * Display the CSV upload form in the admin panel.
+ */
+function csv_import_page_html() {
+    ?>
+    <div class="wrap">
+        <h1>CSV Category Import</h1>
+        <form method="post" enctype="multipart/form-data">
+            <?php wp_nonce_field('csv_category_import_action', 'csv_category_import_nonce'); ?>
+            <input type="file" name="csv_file" accept=".csv" required />
+            <input type="submit" name="submit_csv" value="Import CSV" class="button-primary" />
+        </form>
+        <?php
+        if (isset($_POST['submit_csv'])) {
+            if (!isset($_POST['csv_category_import_nonce']) || !wp_verify_nonce($_POST['csv_category_import_nonce'], 'csv_category_import_action')) {
+                wp_die('Security check failed.');
+            }
+
+            if (!empty($_FILES['csv_file']['tmp_name'])) {
+                $uploaded_file = $_FILES['csv_file'];
+                $allowed_types = array('text/csv', 'application/csv', 'application/vnd.ms-excel');
+
+                if (in_array($uploaded_file['type'], $allowed_types)) {
+                    $file_path = $uploaded_file['tmp_name'];
+                    import_woocommerce_categories_from_csv($file_path); // Call the import function
+                } else {
+                    echo '<div class="error"><p>Invalid file type. Please upload a CSV file.</p></div>';
+                }
+            } else {
+                echo '<div class="error"><p>No file selected.</p></div>';
+            }
+        }
+        ?>
+    </div>
+    <?php
+}
+
+/**
+ * Process the CSV file and create categories.
+ *
+ * @param string $file_path The path to the uploaded CSV file.
+ */
+function import_woocommerce_categories_from_csv($file_path) {
+    if (!file_exists($file_path)) {
+        echo '<div class="error"><p>CSV file not found.</p></div>';
+        return;
+    }
+
+    $csv = fopen($file_path, 'r');
+    $header = fgetcsv($csv); // Skip the header row
+    $categories = [];
+
+    while (($row = fgetcsv($csv)) !== false) {
+        $categories[] = [
+            'name' => sanitize_text_field($row[0] ?? ''),
+            'slug' => sanitize_title_with_dashes($row[1] ?? ''),
+            'parent' => sanitize_text_field($row[2] ?? ''),
+            'description' => sanitize_textarea_field($row[3] ?? ''),
+            'thumbnail' => esc_url_raw($row[4] ?? ''),
+        ];
+    }
+    fclose($csv);
+
+    // Create categories
+    foreach ($categories as $category) {
+        $parent_id = 0;
+
+        if (!empty($category['parent'])) {
+            $parent_category = get_term_by('name', $category['parent'], 'product_cat');
+            if ($parent_category) {
+                $parent_id = $parent_category->term_id;
+            } else {
+                $parent_term = wp_insert_term($category['parent'], 'product_cat');
+                if (!is_wp_error($parent_term)) {
+                    $parent_id = $parent_term['term_id'];
+                }
+            }
+        }
+
+        // Create or update the category
+        $term = wp_insert_term(
+            $category['name'],
+            'product_cat',
+            [
+                'slug' => $category['slug'],
+                'parent' => $parent_id,
+                'description' => $category['description'],
+            ]
+        );
+
+        if (!is_wp_error($term)) {
+            // Assign thumbnail if URL is provided
+            if (!empty($category['thumbnail'])) {
+                $thumbnail_id = media_sideload_image($category['thumbnail'], 0, null, 'id');
+                if (!is_wp_error($thumbnail_id)) {
+                    update_term_meta($term['term_id'], 'thumbnail_id', $thumbnail_id); // Correct function
+                }
+            }
+        }
+    }
+
+    echo '<div class="updated"><p>Categories imported successfully!</p></div>';
+}
