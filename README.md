@@ -4,6 +4,8 @@
 
 ---
 
+![Version](https://img.shields.io/badge/version-1.2-blue)      ![WordPress Compatibility](https://img.shields.io/badge/WordPress-5.0%2B-brightgreen)     ![License](https://img.shields.io/badge/license-GPL--2.0-blue) 
+
 ## 📋 Features  
 
 - **Bulk Import Categories**  
